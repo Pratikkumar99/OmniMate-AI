@@ -1,15 +1,68 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Bot,
   Send,
   Sparkles,
   Menu,
-   X, Trash2
+  X,
+  Trash2,
+  Loader2,
+  Plus,
+  FileText,
 } from "lucide-react";
+
 import ReactMarkdown from "react-markdown";
-const API_URL = import.meta.env.VITE_API_URL
+const API_URL = import.meta.env.VITE_API_URL;
 function App() {
   const [message, setMessage] = useState("");
+  const [documentId, setDocumentId] = useState(null);
+  const [pdfName, setPdfName] = useState("");
+  const [pdfUploading, setPdfUploading] = useState(false);
+
+  const fileInputRef = useRef(null);
+
+  const uploadPDF = async (file) => {
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      alert("Please select a PDF file");
+      return;
+    }
+
+    setPdfUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("pdf", file);
+
+      const response = await fetch(`${API_URL}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error);
+      }
+
+      // Set newly uploaded PDF as active
+      setDocumentId(data.documentId);
+      setPdfName(data.fileName);
+
+      console.log("PDF uploaded:", data);
+    } catch (error) {
+      console.error("PDF upload error:", error);
+      alert(error.message);
+    } finally {
+      setPdfUploading(false);
+
+      // Allow selecting the same file again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
   const [chats, setChats] = useState(() => {
     const savedChats = localStorage.getItem("omnimates_chats");
 
@@ -25,28 +78,43 @@ function App() {
     localStorage.setItem("omnimates_chats", JSON.stringify(chats));
   }, [chats]);
 
-  const sendMessage = async () => {
-    if (!message.trim() || loading) return;
+  
+const sendMessage = async () => {
+  if (!message.trim() || loading || pdfUploading) return;
 
-    const question = message;
+  const question = message;
+  const previousChats = chats;
 
-    // Store previous conversation before adding new message
-    const previousChats = chats;
+  // Add user's message
+  setChats((prev) => [
+    ...prev,
+    {
+      role: "user",
+      text: question,
+    },
+  ]);
 
-    // Add user's message to UI
-    setChats((prev) => [
-      ...prev,
-      {
-        role: "user",
-        text: question,
-      },
-    ]);
+  setMessage("");
+  setLoading(true);
 
-    setMessage("");
-    setLoading(true);
+  try {
+    let response;
 
-    try {
-      const response = await fetch(`${API_URL}/api/chat`, {
+    if (documentId) {
+      // PDF-based RAG chat
+      response = await fetch(`${API_URL}/query`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question,
+          documentId,
+        }),
+      });
+    } else {
+      // Normal AI chat
+      response = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -56,35 +124,39 @@ function App() {
           history: previousChats,
         }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Something went wrong");
-      }
-
-      // Add AI response to UI
-      setChats((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: data.answer,
-        },
-      ]);
-    } catch (error) {
-      setChats((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: "Oops! Something went wrong. Please try again.",
-        },
-      ]);
-
-      console.log(error.message);
-    } finally {
-      setLoading(false);
     }
-  };
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Something went wrong");
+    }
+
+    // Add AI response
+    setChats((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: data.answer,
+      },
+    ]);
+
+  } catch (error) {
+    setChats((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: "Oops! Something went wrong. Please try again.",
+      },
+    ]);
+
+    console.log(error.message);
+
+  } finally {
+    setLoading(false);
+  }
+};
+3000
 
   const suggestions = [
     "Tell me some news about politics",
@@ -258,8 +330,71 @@ function App() {
           )}
 
           {/* Input Area */}
+
+          {/* Input Area */}
+
+          {/* Input Area */}
           <div className="sticky bottom-0 bg-[#F5F0E8] pt-4 pb-2">
+            {/* Uploaded PDF indicator */}
+            {pdfName && (
+              <div className="mb-3 flex items-center justify-between bg-[#C7F0B2] border-2 border-black p-3 shadow-[3px_3px_0px_black]">
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileText size={22} />
+
+                  <div className="min-w-0">
+                    <p className="font-black text-sm truncate">{pdfName}</p>
+                    <p className="text-xs font-medium">
+                      PDF ready for questions
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setDocumentId(null);
+                    setPdfName("");
+                  }}
+                  className="p-1 hover:bg-white border-2 border-transparent hover:border-black"
+                  title="Remove active PDF"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            )}
+
+            {/* Uploading indicator */}
+            {pdfUploading && (
+              <div className="mb-3 flex items-center gap-2 bg-[#A9C7FF] border-2 border-black p-3">
+                <Loader2 size={18} className="animate-spin" />
+                <span className="font-bold text-sm">
+                  Uploading and processing PDF...
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center gap-3 border-[3px] border-black bg-white p-2 shadow-[5px_5px_0px_black]">
+              {/* Hidden PDF input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) uploadPDF(file);
+                }}
+              />
+
+              {/* Attach PDF button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={pdfUploading}
+                className="p-2 hover:bg-[#FFE45C] disabled:opacity-50"
+                title="Upload PDF"
+              >
+                <Plus size={21} />
+              </button>
+
               <input
                 type="text"
                 value={message}
@@ -267,13 +402,17 @@ function App() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") sendMessage();
                 }}
-                placeholder="Message OmniMate..."
+                placeholder={
+                  pdfName
+                    ? `Ask anything about ${pdfName}...`
+                    : "Message OmniMate..."
+                }
                 className="flex-1 min-w-0 p-3 outline-none bg-transparent font-medium"
               />
 
               <button
                 onClick={sendMessage}
-                disabled={!message.trim() || loading}
+                disabled={!message.trim() || loading || pdfUploading}
                 className="bg-[#FFE45C] border-2 border-black p-3 disabled:opacity-50"
               >
                 <Send size={20} />

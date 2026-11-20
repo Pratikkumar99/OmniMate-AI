@@ -487,4 +487,27 @@ async function chatting(question, history = []) {
   }
 }
 
-module.exports = chatting;
+
+async function createEmbedding(text) {
+
+    const ai = new GoogleGenAI({});
+
+    const response = await ai.models.embedContent({
+        model: 'gemini-embedding-2',
+        contents: text,
+    });
+
+    return response.embeddings[0].values;
+}
+
+async function normalAnswer(text) {
+  const interaction = await ai.interactions.create({
+    model: "gemini-3.1-flash-lite",
+
+    input:text
+  });
+
+  return interaction.output_text;
+}
+
+module.exports = {chatting,createEmbedding,normalAnswer};
