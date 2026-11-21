@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { TavilySearch } =  require("@langchain/tavily");
+const { TavilySearch } = require("@langchain/tavily");
 const { GoogleGenAI } = require("@google/genai");
 const baseUrlF = `https://api.weatherapi.com/v1/forecast.json?key=${process.env.WEATHER_API_KEY}`;
 const baseUrlH = `https://api.weatherapi.com/v1/history.json?key=${process.env.WEATHER_API_KEY}`;
@@ -35,7 +35,6 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 // And also like convert responses to normal person understable.
 // Strictly follow instructions.
 // `;
-
 
 const intentPrompt = `
 You are the intent detection and parameter extraction engine
@@ -236,7 +235,6 @@ Your output is consumed by JavaScript JSON.parse().
 Return one valid JSON object only.
 `;
 
-
 const answerPrompt = `
 You are OmniMate, a friendly, intelligent and helpful AI assistant.
 
@@ -306,7 +304,6 @@ Give a direct, understandable and useful answer.
 Use Markdown.
 Do not return JSON.
 `;
-
 
 async function extractIntent(question, history = []) {
   const recentHistory = history.slice(-10);
@@ -437,10 +434,14 @@ async function getWeatherData(location) {
       response = await fetch(`${baseUrlF}&q=${encodeURIComponent(city)}`);
     } else if (date === "yesterday") {
       date = getDate(-1);
-      response = await fetch(`${baseUrlF}&q=${encodeURIComponent(city)}&dt=${date}`);
+      response = await fetch(
+        `${baseUrlF}&q=${encodeURIComponent(city)}&dt=${date}`,
+      );
     } else if (date === "tomorrow") {
       date = getDate(1);
-      response = await fetch(`${baseUrlF}&q=${encodeURIComponent(city)}&dt=${date}`);
+      response = await fetch(
+        `${baseUrlF}&q=${encodeURIComponent(city)}&dt=${date}`,
+      );
     } else {
       response = await fetch(
         `${baseUrlH}&q=${encodeURIComponent(city)}&dt=${date}`,
@@ -486,7 +487,6 @@ async function getNews(info) {
 let tavilySearch;
 
 async function performWebSearch(query) {
-
   // Initialize only once
   if (!tavilySearch) {
     tavilySearch = new TavilySearch({
@@ -503,7 +503,6 @@ async function performWebSearch(query) {
 
   return results;
 }
-
 
 async function chatting(question, history = []) {
   try {
@@ -528,46 +527,171 @@ async function chatting(question, history = []) {
       response = await getBitcoinData(info);
     } else if (info.isNews) {
       response = await getNews(info);
-    }else if (info.isWebSearch) {
+    } else if (info.isWebSearch) {
       response = await performWebSearch(question);
     }
 
     // Step 3: Generate contextual answer
-    const answer = await generateAnswer(
-      question,
-      response,
-      history
-    );
+    const answer = await generateAnswer(question, response, history);
 
     return answer;
-
   } catch (error) {
     console.error("Chatting error:", error);
     throw error;
   }
 }
 
-
 async function createEmbedding(text) {
+  const ai = new GoogleGenAI({});
 
-    const ai = new GoogleGenAI({});
+  const response = await ai.models.embedContent({
+    model: "gemini-embedding-2",
+    contents: text,
+  });
 
-    const response = await ai.models.embedContent({
-        model: 'gemini-embedding-2',
-        contents: text,
-    });
-
-    return response.embeddings[0].values;
+  return response.embeddings[0].values;
 }
 
 async function normalAnswer(text) {
   const interaction = await ai.interactions.create({
     model: "gemini-3.1-flash-lite",
 
-    input:text
+    input: text,
   });
 
   return interaction.output_text;
 }
 
-module.exports = {chatting,createEmbedding,normalAnswer};
+
+
+async function classifyPDFIntent(question) {
+  const prompt = `
+You are an intent classifier for OmniMate PDF Assistant.
+
+Classify the user's request into one of these categories:
+
+ATS_ANALYSIS:
+- Calculate ATS score of my resume.
+- Analyze my resume.
+- Check ATS compatibility.
+- Find resume weaknesses.
+- Suggest improvements to my resume.
+- Extract resume text and analyze ATS score.
+
+PDF_QUESTION:
+- Any normal question about the uploaded PDF.
+- Extract all text from the PDF.
+- Explain a particular section.
+- Find specific information in the document.
+
+Return ONLY valid JSON:
+
+{
+  "intent": "ATS_ANALYSIS"
+}
+
+or
+
+{
+  "intent": "PDF_QUESTION"
+}
+
+User request:
+${question}
+`;
+
+  const response = await normalAnswer(prompt);
+
+  const start = response.indexOf("{");
+  const end = response.lastIndexOf("}");
+
+  if (start === -1 || end === -1) {
+    throw new Error("Invalid intent classification response");
+  }
+
+  return JSON.parse(response.slice(start, end + 1));
+}
+
+async function analyzeResume(resumeText) {
+  const prompt = `
+You are a professional ATS resume analyzer.
+
+Analyze the complete resume provided below.
+
+First check whether the document is actually a resume.
+
+If it is not a resume, return:
+
+{
+  "isResume": false,
+  "reason": "This document does not appear to be a resume."
+}
+
+If it is a resume, evaluate:
+
+1. ATS compatibility
+2. Technical skills
+3. Work experience
+4. Projects
+5. Education
+6. Certifications
+7. Achievements
+8. Formatting and readability
+9. Grammar and spelling
+10. Resume improvement suggestions
+
+Return ONLY valid JSON in this structure:
+
+{
+  "isResume": true,
+  "atsScore": 75,
+  "scoreBreakdown": {
+    "formatting": 15,
+    "skills": 20,
+    "experience": 15,
+    "projects": 15,
+    "education": 5,
+    "achievements": 5
+  },
+  "strengths": [],
+  "weaknesses": [],
+  "matchedKeywords": [],
+  "missingKeywords": [],
+  "formattingIssues": [],
+  "suggestions": []
+}
+
+Rules:
+- ATS score must be between 0 and 100.
+- Score must be consistent with the score breakdown.
+- Do not invent qualifications or experience.
+- Do not penalize a fresher for lacking extensive work experience.
+- Do not claim keywords are missing relative to a job description
+  when no job description is provided.
+- Give practical and specific suggestions.
+- This is an estimated ATS score, not an official ATS result.
+
+COMPLETE RESUME TEXT:
+
+${resumeText}
+`;
+
+  const response = await normalAnswer(prompt);
+
+  const start = response.indexOf("{");
+  const end = response.lastIndexOf("}");
+
+  if (start === -1 || end === -1) {
+    throw new Error("Invalid ATS analysis response");
+  }
+
+  return JSON.parse(response.slice(start, end + 1));
+}
+
+module.exports = {
+  chatting,
+  createEmbedding,
+  normalAnswer,
+  classifyPDFIntent,
+  analyzeResume,
+};

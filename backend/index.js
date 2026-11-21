@@ -2,7 +2,8 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const { QdrantClient } = require("@qdrant/qdrant-js");
-const { chatting, createEmbedding, normalAnswer } = require("./gemini");
+const { chatting, createEmbedding, normalAnswer,classifyPDFIntent,
+  analyzeResume, } = require("./gemini");
 const fs = require("fs");
 const { randomUUID } = require("crypto");
 const multer = require("multer");
@@ -59,7 +60,7 @@ async function createIndexes() {
     wait: true,
   });
 
-  console.log("Qdrant payload indexes created successfully");
+  // console.log("Qdrant payload indexes created successfully");
 }
 
 app.post("/upload", upload.single("pdf"), async (req, res) => {
@@ -141,6 +142,59 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
   }
 });
 
+
+async function getFullDocumentText(documentId) {
+  let allPoints = [];
+  let offset = undefined;
+
+  while (true) {
+    const result = await quadrant.scroll("omnimate", {
+      limit: 100,
+      offset,
+      with_payload: true,
+      with_vector: false,
+
+      filter: {
+        must: [
+          {
+            key: "documentId",
+            match: {
+              value: documentId,
+            },
+          },
+          {
+            key: "expiresAt",
+            range: {
+              gt: Date.now(),
+            },
+          },
+        ],
+      },
+    });
+
+    allPoints.push(...result.points);
+
+    if (!result.next_page_offset) {
+      break;
+    }
+
+    offset = result.next_page_offset;
+  }
+
+  // Sort chunks in original PDF order
+  allPoints.sort(
+    (a, b) =>
+      a.payload.chunkIndex - b.payload.chunkIndex
+  );
+
+  // Combine all extracted text
+  const fullText = allPoints
+    .map((point) => point.payload.text)
+    .join("\n\n");
+
+  return fullText;
+}
+
 app.post("/query", async (req, res) => {
   try {
     const { question, documentId } = req.body;
@@ -152,10 +206,43 @@ app.post("/query", async (req, res) => {
       });
     }
 
-    // 2. Create question embedding
+    // 2. Classify user intent
+    const classification = await classifyPDFIntent(question);
+
+    // 3. ATS ANALYSIS
+    if (classification.intent === "ATS_ANALYSIS") {
+
+      console.log("Retrieving complete resume...");
+
+      // Retrieve ALL chunks
+      const resumeText = await getFullDocumentText(documentId);
+
+      if (!resumeText) {
+        return res.status(404).json({
+          error: "PDF not found or expired",
+        });
+      }
+
+      // Analyze complete resume using Gemini
+      const atsResult = await analyzeResume(resumeText);
+
+      if (!atsResult.isResume) {
+        return res.status(400).json({
+          error: atsResult.reason,
+        });
+      }
+
+      return res.json({
+        question,
+        documentId,
+        answer: atsResult,
+      });
+    }
+
+    // 4. NORMAL PDF QUESTION
     const questionEmbedding = await createEmbedding(question);
 
-    // 3. Search in Qdrant
+    // Search relevant chunks
     const searchResult = await quadrant.query("omnimate", {
       query: questionEmbedding,
       limit: 2,
@@ -179,7 +266,7 @@ app.post("/query", async (req, res) => {
       },
     });
 
-    // 4. Get retrieved chunks
+    // Retrieve top 2 chunks
     const bestChunks = (searchResult.points || [])
       .map((point) => point.payload.text)
       .join("\n\n");
@@ -190,7 +277,7 @@ app.post("/query", async (req, res) => {
       });
     }
 
-    // 5. Generate answer
+    // Generate normal PDF answer
     const answer = await normalAnswer(`
       You are OmniMate AI, a helpful PDF assistant.
 
@@ -206,8 +293,7 @@ app.post("/query", async (req, res) => {
       ${bestChunks}
     `);
 
-    // 6. Return answer
-    res.json({
+    return res.json({
       question,
       answer,
       documentId,
@@ -217,11 +303,12 @@ app.post("/query", async (req, res) => {
   } catch (error) {
     console.error("QUERY ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: error.message,
     });
   }
 });
+
 
 async function deleteExpiredDocuments() {
   try {

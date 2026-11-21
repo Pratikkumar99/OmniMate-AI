@@ -45,12 +45,9 @@ function App() {
       if (!response.ok) {
         throw new Error(data.error);
       }
-
       // Set newly uploaded PDF as active
       setDocumentId(data.documentId);
       setPdfName(data.fileName);
-
-      console.log("PDF uploaded:", data);
     } catch (error) {
       console.error("PDF upload error:", error);
       alert(error.message);
