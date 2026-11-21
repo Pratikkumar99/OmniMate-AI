@@ -75,85 +75,83 @@ function App() {
     localStorage.setItem("omnimates_chats", JSON.stringify(chats));
   }, [chats]);
 
-  
-const sendMessage = async () => {
-  if (!message.trim() || loading || pdfUploading) return;
+  const sendMessage = async () => {
+    if (!message.trim() || loading || pdfUploading) return;
 
-  const question = message;
-  const previousChats = chats;
+    const question = message;
+    const previousChats = chats;
 
-  // Add user's message
-  setChats((prev) => [
-    ...prev,
-    {
-      role: "user",
-      text: question,
-    },
-  ]);
-
-  setMessage("");
-  setLoading(true);
-
-  try {
-    let response;
-
-    if (documentId) {
-      // PDF-based RAG chat
-      response = await fetch(`${API_URL}/query`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question,
-          documentId,
-        }),
-      });
-    } else {
-      // Normal AI chat
-      response = await fetch(`${API_URL}/api/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question,
-          history: previousChats,
-        }),
-      });
-    }
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "Something went wrong");
-    }
-
-    // Add AI response
+    // Add user's message
     setChats((prev) => [
       ...prev,
       {
-        role: "assistant",
-        text: data.answer,
+        role: "user",
+        text: question,
       },
     ]);
 
-  } catch (error) {
-    setChats((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        text: "Oops! Something went wrong. Please try again.",
-      },
-    ]);
+    setMessage("");
+    setLoading(true);
 
-    console.log(error.message);
+    try {
+      let response;
 
-  } finally {
-    setLoading(false);
-  }
-};
-3000
+      if (documentId) {
+        // PDF-based RAG chat
+        response = await fetch(`${API_URL}/query`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            question,
+            documentId,
+            history: previousChats,
+          }),
+        });
+      } else {
+        // Normal AI chat
+        response = await fetch(`${API_URL}/api/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            question,
+            history: previousChats,
+          }),
+        });
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Something went wrong");
+      }
+
+      // Add AI response
+      setChats((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: data.answer,
+        },
+      ]);
+    } catch (error) {
+      setChats((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "Oops! Something went wrong. Please try again.",
+        },
+      ]);
+
+      console.log(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  3000;
 
   const suggestions = [
     "Tell me some news about politics",

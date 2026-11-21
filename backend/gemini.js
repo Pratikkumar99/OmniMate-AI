@@ -564,9 +564,12 @@ async function normalAnswer(text) {
 
 
 
-async function classifyPDFIntent(question) {
+async function classifyPDFIntent(question,history = []) {
   const prompt = `
 You are an intent classifier for OmniMate PDF Assistant.
+
+Conversation history:
+${JSON.stringify(history)}
 
 Classify the user's request into one of these categories:
 
@@ -612,9 +615,12 @@ ${question}
   return JSON.parse(response.slice(start, end + 1));
 }
 
-async function analyzeResume(resumeText) {
+async function analyzeResume(resumeText, history = []) {
   const prompt = `
 You are a professional ATS resume analyzer.
+
+Previous conversation:
+${JSON.stringify(history)}
 
 Analyze the complete resume provided below.
 

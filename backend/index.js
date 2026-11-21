@@ -2,8 +2,13 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const { QdrantClient } = require("@qdrant/qdrant-js");
-const { chatting, createEmbedding, normalAnswer,classifyPDFIntent,
-  analyzeResume, } = require("./gemini");
+const {
+  chatting,
+  createEmbedding,
+  normalAnswer,
+  classifyPDFIntent,
+  analyzeResume,
+} = require("./gemini");
 const fs = require("fs");
 const { randomUUID } = require("crypto");
 const multer = require("multer");
@@ -79,9 +84,7 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
     const text = pdfData.text;
 
     // 3. Split into chunks
-    const chunks = text
-      .split(/\n\s*\n/)
-      .filter((chunk) => chunk.trim() !== "");
+    const chunks = text.split(/\n\s*\n/).filter((chunk) => chunk.trim() !== "");
 
     if (chunks.length === 0) {
       return res.status(400).json({
@@ -126,14 +129,12 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
       totalChunks: chunks.length,
       expiresAt,
     });
-
   } catch (error) {
     console.error("UPLOAD ERROR:", error);
 
     res.status(500).json({
       error: error.message,
     });
-
   } finally {
     // Delete temporary PDF
     if (req.file && fs.existsSync(req.file.path)) {
@@ -141,7 +142,6 @@ app.post("/upload", upload.single("pdf"), async (req, res) => {
     }
   }
 });
-
 
 async function getFullDocumentText(documentId) {
   let allPoints = [];
@@ -182,22 +182,17 @@ async function getFullDocumentText(documentId) {
   }
 
   // Sort chunks in original PDF order
-  allPoints.sort(
-    (a, b) =>
-      a.payload.chunkIndex - b.payload.chunkIndex
-  );
+  allPoints.sort((a, b) => a.payload.chunkIndex - b.payload.chunkIndex);
 
   // Combine all extracted text
-  const fullText = allPoints
-    .map((point) => point.payload.text)
-    .join("\n\n");
+  const fullText = allPoints.map((point) => point.payload.text).join("\n\n");
 
   return fullText;
 }
 
 app.post("/query", async (req, res) => {
   try {
-    const { question, documentId } = req.body;
+    const { question, documentId, history = [] } = req.body;
 
     // 1. Validate input
     if (!question || !documentId) {
@@ -207,11 +202,10 @@ app.post("/query", async (req, res) => {
     }
 
     // 2. Classify user intent
-    const classification = await classifyPDFIntent(question);
+    const classification = await classifyPDFIntent(question, history);
 
     // 3. ATS ANALYSIS
     if (classification.intent === "ATS_ANALYSIS") {
-
       console.log("Retrieving complete resume...");
 
       // Retrieve ALL chunks
@@ -224,7 +218,7 @@ app.post("/query", async (req, res) => {
       }
 
       // Analyze complete resume using Gemini
-      const atsResult = await analyzeResume(resumeText);
+      const atsResult = await analyzeResume(resumeText, history);
 
       if (!atsResult.isResume) {
         return res.status(400).json({
@@ -281,17 +275,18 @@ app.post("/query", async (req, res) => {
     const answer = await normalAnswer(`
       You are OmniMate AI, a helpful PDF assistant.
 
-      Answer the user's question using ONLY the context below.
+      Previous conversation:
+      ${JSON.stringify(history)}
 
-      If the context does not contain the answer,
-      clearly say that you cannot find it in the document.
+      Answer the current question using ONLY the PDF context below.
 
       Question:
       ${question}
 
       Context:
       ${bestChunks}
-    `);
+      `
+    );
 
     return res.json({
       question,
@@ -299,7 +294,6 @@ app.post("/query", async (req, res) => {
       documentId,
       score: searchResult.points[0].score,
     });
-
   } catch (error) {
     console.error("QUERY ERROR:", error);
 
@@ -308,7 +302,6 @@ app.post("/query", async (req, res) => {
     });
   }
 });
-
 
 async function deleteExpiredDocuments() {
   try {
@@ -327,7 +320,6 @@ async function deleteExpiredDocuments() {
     });
 
     console.log("Expired documents cleanup completed");
-
   } catch (error) {
     console.error("Cleanup error:", error.message);
   }
@@ -366,15 +358,17 @@ async function startServer() {
     await deleteExpiredDocuments();
 
     // 3. Schedule cleanup every 10 minutes
-    setInterval(() => {
-      deleteExpiredDocuments();
-    }, 10 * 60 * 1000);
+    setInterval(
+      () => {
+        deleteExpiredDocuments();
+      },
+      10 * 60 * 1000,
+    );
 
     // 4. Start server
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
-
   } catch (error) {
     console.error("Server initialization failed:", error);
   }
