@@ -8,6 +8,7 @@ const {
   normalAnswer,
   classifyPDFIntent,
   analyzeResume,
+  explainATSAnalysis,
 } = require("./gemini");
 const fs = require("fs");
 const { randomUUID } = require("crypto");
@@ -206,30 +207,30 @@ app.post("/query", async (req, res) => {
 
     // 3. ATS ANALYSIS
     if (classification.intent === "ATS_ANALYSIS") {
-      console.log("Retrieving complete resume...");
-
-      // Retrieve ALL chunks
       const resumeText = await getFullDocumentText(documentId);
 
       if (!resumeText) {
         return res.status(404).json({
-          error: "PDF not found or expired",
+          error: "Resume document not found",
         });
       }
 
-      // Analyze complete resume using Gemini
-      const atsResult = await analyzeResume(resumeText, history);
+      // Step 1: Analyze resume
+      const analysis = await analyzeResume(resumeText, history);
 
-      if (!atsResult.isResume) {
+      if (!analysis.isResume) {
         return res.status(400).json({
-          error: atsResult.reason,
+          error: "Uploaded document is not a resume",
         });
       }
+
+      // Step 2: Ask Gemini to explain the analysis
+      const answer = await explainATSAnalysis(analysis, history);
 
       return res.json({
         question,
         documentId,
-        answer: atsResult,
+        answer,
       });
     }
 
@@ -285,8 +286,7 @@ app.post("/query", async (req, res) => {
 
       Context:
       ${bestChunks}
-      `
-    );
+      `);
 
     return res.json({
       question,

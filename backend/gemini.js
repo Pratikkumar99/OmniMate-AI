@@ -694,10 +694,41 @@ ${resumeText}
   return JSON.parse(response.slice(start, end + 1));
 }
 
+async function explainATSAnalysis(analysis, history = []) {
+  const prompt = `
+You are an expert resume and ATS evaluator.
+
+Here is the ATS analysis of the user's resume:
+
+${JSON.stringify(analysis, null, 2)}
+
+Previous conversation:
+${JSON.stringify(history)}
+
+Explain the analysis to the user in a friendly and professional way.
+
+Include:
+1. Overall ATS score out of 100.
+2. Score breakdown.
+3. Resume strengths.
+4. Weaknesses.
+5. Missing keywords.
+6. Practical improvements.
+
+Use simple language.
+Use Markdown formatting.
+Do not invent any information.
+Do not change the ATS score.
+`;
+
+  return await normalAnswer(prompt);
+}
+
 module.exports = {
   chatting,
   createEmbedding,
   normalAnswer,
   classifyPDFIntent,
   analyzeResume,
+  explainATSAnalysis
 };
